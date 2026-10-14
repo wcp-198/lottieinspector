@@ -1,0 +1,8 @@
+{
+  // Must match your project's name in the Cloudflare dashboard
+  "name": "lottie-inspector",
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "./public"
+  }
+}
