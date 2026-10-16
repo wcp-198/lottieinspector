@@ -127,7 +127,13 @@
   .color-dot::-moz-color-swatch { border: 0; border-radius: 50%; }
   .stage-meta { margin-left: auto; font-size: 12px; }
   .stage-wrap { flex: 1; display: flex; padding: 24px; min-height: 280px; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
-  .stage { margin: auto; flex: none; box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0,0,0,.35); }
+  /* The stage's size comes from CSS variables, plus a 1px frame that is part of the box.
+     The animation inside stays exactly W x H at 100%, but the box is never an exact
+     standard ad size (728x90, 300x250…) written inline — which ad blockers hide. */
+  .stage { margin: auto; flex: none; box-sizing: border-box;
+    width: calc(var(--stage-w, 0px) + 2px); height: calc(var(--stage-h, 0px) + 2px);
+    border: 1px solid var(--line); background-clip: padding-box;
+    box-shadow: 0 12px 40px rgba(0,0,0,.35); }
   .stage.checker { background: repeating-conic-gradient(#363b46 0% 25%, #2b2f38 0% 50%) 50% / 20px 20px; }
 
   /* Empty state + drop overlay */
@@ -533,7 +539,22 @@
       rendererSettings: { preserveAspectRatio: "xMidYMid meet" }
     });
     anim.setSpeed(speed);
+    // lottie writes the comp size (e.g. width="728" height="90") on its <svg> and on the
+    // clipping <rect>s inside it. Ad blockers can hide anything matching a standard ad size,
+    // which blanks the animation. The svg is sized by CSS, so its attributes are dropped;
+    // inner sizes are rewritten as "728.0", which renders identically but matches no rule.
+    const disguiseAdSizes = () => {
+      stage.querySelectorAll(":scope > svg").forEach((svg) => { svg.removeAttribute("width"); svg.removeAttribute("height"); });
+      stage.querySelectorAll("svg [width], svg [height]").forEach((el) => {
+        for (const attr of ["width", "height"]) {
+          const v = el.getAttribute(attr);
+          if (v && /^\d+$/.test(v)) el.setAttribute(attr, v + ".0");
+        }
+      });
+    };
+    disguiseAdSizes();
     anim.addEventListener("DOMLoaded", () => {
+      disguiseAdSizes();
       $("scrubber").max = Math.max(0, Math.floor(anim.totalFrames) - 1);
       $("scrubber").disabled = false;
       $("playBtn").disabled = false;
@@ -606,10 +627,10 @@
   function fitStage() {
     if (!data || stage.hidden) return;
     const pad = 48;
-    const fitScale = Math.min((stageWrap.clientWidth - pad) / data.w, (stageWrap.clientHeight - pad) / data.h);
+    const fitScale = Math.min((stageWrap.clientWidth - pad - 2) / data.w, (stageWrap.clientHeight - pad - 2) / data.h);
     const scale = zoom === "fit" ? Math.max(0.01, fitScale) : parseFloat(zoom);
-    stage.style.width = Math.max(1, Math.round(data.w * scale)) + "px";
-    stage.style.height = Math.max(1, Math.round(data.h * scale)) + "px";
+    stage.style.setProperty("--stage-w", Math.max(1, Math.round(data.w * scale)) + "px");
+    stage.style.setProperty("--stage-h", Math.max(1, Math.round(data.h * scale)) + "px");
     $("stageMeta").textContent = `${data.w} × ${data.h} · ${+data.fr.toFixed(2)} fps · ${Math.round(scale * 100)}%`;
   }
   new ResizeObserver(fitStage).observe(stageWrap);
