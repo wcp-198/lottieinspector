@@ -126,12 +126,12 @@
   .color-dot::-webkit-color-swatch { border: 0; border-radius: 50%; }
   .color-dot::-moz-color-swatch { border: 0; border-radius: 50%; }
   .stage-meta { margin-left: auto; font-size: 12px; }
-  .stage-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; min-height: 280px; overflow: hidden; }
-  .stage { box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0,0,0,.35); }
+  .stage-wrap { flex: 1; display: flex; padding: 24px; min-height: 280px; overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+  .stage { margin: auto; flex: none; box-shadow: 0 0 0 1px var(--line), 0 12px 40px rgba(0,0,0,.35); }
   .stage.checker { background: repeating-conic-gradient(#363b46 0% 25%, #2b2f38 0% 50%) 50% / 20px 20px; }
 
   /* Empty state + drop overlay */
-  .welcome { text-align: center; max-width: 360px; }
+  .welcome { margin: auto; text-align: center; max-width: 360px; }
   .welcome .drop-icon { width: 56px; height: 56px; margin: 0 auto 18px; border-radius: 18px; display: grid; place-items: center; background: var(--panel-2); color: var(--accent); }
   .welcome .drop-icon svg { width: 26px; height: 26px; }
   .welcome h2 { font-size: 20px; font-weight: 600; margin: 0; }
@@ -208,7 +208,7 @@
   footer { display: flex; align-items: center; gap: 14px; padding: 10px 16px 10px 10px; }
   .play { width: 40px; height: 40px; padding: 0; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: #0e1320; flex: none; }
   .play:hover:not(:disabled) { background: #93b4ff; }
-  .play svg { width: 15px; height: 15px; }
+  .play svg { width: 15px; height: 15px; pointer-events: none; }
   input[type=range] {
     -webkit-appearance: none; appearance: none; flex: 1; min-width: 80px; height: 6px; border-radius: 999px; cursor: pointer;
     background: linear-gradient(var(--accent), var(--accent)) 0 / var(--p, 0%) 100% no-repeat, var(--panel-3);
@@ -266,6 +266,12 @@
         <button data-bg="#000000" aria-pressed="false">Black</button>
       </div>
       <input type="color" class="color-dot" id="bgColor" value="#7aa2ff" aria-label="Custom background color">
+      <div class="seg" role="group" aria-label="Zoom">
+        <button data-zoom="fit" aria-pressed="true" title="Fit to the window (F)">Fit</button>
+        <button data-zoom="0.5" aria-pressed="false">50%</button>
+        <button data-zoom="1" aria-pressed="false" title="Actual size (1)">100%</button>
+        <button data-zoom="2" aria-pressed="false">200%</button>
+      </div>
       <span class="stage-meta num" id="stageMeta"></span>
     </div>
     <div class="stage-wrap" id="stageWrap">
@@ -388,7 +394,6 @@
     applyImages();
     setEdited(false);
     $("fileName").textContent = name;
-    $("stageMeta").textContent = `${data.w} × ${data.h} · ${+data.fr.toFixed(2)} fps`;
     $("welcome").hidden = true;
     stage.hidden = false;
     mount(0, true);
@@ -554,9 +559,15 @@
     $("scrubber").value = f;
     $("timeLabel").innerHTML = `<b>${f}</b> / ${total} &nbsp; ${(f / data.fr).toFixed(2)}s`;
     $("scrubber").style.setProperty("--p", total > 1 ? (f / (total - 1) * 100) + "%" : "0%");
+    // Only swap the icon when the state changes. Replacing it every frame
+    // removed the element under the cursor mid-click, so clicks were lost.
     const playing = !anim.isPaused;
-    $("playBtn").innerHTML = playing ? ICONS.pause : ICONS.play;
-    $("playBtn").setAttribute("aria-label", playing ? "Pause" : "Play");
+    const btn = $("playBtn");
+    if (btn.dataset.state !== String(playing)) {
+      btn.dataset.state = String(playing);
+      btn.innerHTML = playing ? ICONS.pause : ICONS.play;
+      btn.setAttribute("aria-label", playing ? "Pause" : "Play");
+    }
   }
 
   function togglePlay() {
@@ -579,14 +590,27 @@
   }
 
   // Keep the stage at the composition's aspect ratio, fitted to the space.
+  // Zoom: "fit" scales to the available space; a number is a fixed scale (1 = actual size).
+  // The choice is remembered between files and visits.
+  let zoom = "fit";
+  try { zoom = localStorage.getItem("lottie-inspector-zoom") || "fit"; } catch {}
+  if (!["fit", "0.5", "1", "2"].includes(zoom)) zoom = "fit";
+
+  function setZoom(value) {
+    zoom = value;
+    try { localStorage.setItem("lottie-inspector-zoom", value); } catch {}
+    document.querySelectorAll("[data-zoom]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.zoom === value)));
+    fitStage();
+  }
+
   function fitStage() {
     if (!data || stage.hidden) return;
     const pad = 48;
-    const availW = stageWrap.clientWidth - pad;
-    const availH = stageWrap.clientHeight - pad;
-    const scale = Math.min(availW / data.w, availH / data.h);
-    stage.style.width = Math.max(1, Math.floor(data.w * scale)) + "px";
-    stage.style.height = Math.max(1, Math.floor(data.h * scale)) + "px";
+    const fitScale = Math.min((stageWrap.clientWidth - pad) / data.w, (stageWrap.clientHeight - pad) / data.h);
+    const scale = zoom === "fit" ? Math.max(0.01, fitScale) : parseFloat(zoom);
+    stage.style.width = Math.max(1, Math.round(data.w * scale)) + "px";
+    stage.style.height = Math.max(1, Math.round(data.h * scale)) + "px";
+    $("stageMeta").textContent = `${data.w} × ${data.h} · ${+data.fr.toFixed(2)} fps · ${Math.round(scale * 100)}%`;
   }
   new ResizeObserver(fitStage).observe(stageWrap);
 
@@ -1179,7 +1203,7 @@
   function setBackground(value) {
     stage.classList.toggle("checker", value === "checker");
     stage.style.backgroundColor = value === "checker" ? "" : value;
-    document.querySelectorAll(".bg-bar button").forEach((b) => {
+    document.querySelectorAll("[data-bg]").forEach((b) => {
       b.setAttribute("aria-pressed", String(b.dataset.bg === value));
     });
   }
@@ -1233,13 +1257,18 @@
   $("speedSelect").onchange = (e) => { speed = +e.target.value; if (anim) anim.setSpeed(speed); };
   $("loopToggle").onchange = (e) => { loopOn = e.target.checked; if (anim) anim.loop = loopOn; };
 
-  document.querySelectorAll(".bg-bar button").forEach((b) => b.onclick = () => setBackground(b.dataset.bg));
+  document.querySelectorAll("[data-bg]").forEach((b) => b.onclick = () => setBackground(b.dataset.bg));
+  document.querySelectorAll("[data-zoom]").forEach((b) => b.onclick = () => setZoom(b.dataset.zoom));
+  setZoom(zoom);
   $("bgColor").addEventListener("input", (e) => setBackground(e.target.value));
 
   // Keyboard: space = play/pause, arrows = step a frame (shift = 10), Home = start
   document.addEventListener("keydown", (e) => {
-    if (!anim || e.target.matches("input[type=color], select")) return;
-    if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+    if (!anim || e.target.matches?.("textarea, select, input:not([type=range]):not([type=checkbox])")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "f" || e.key === "F") { setZoom("fit"); }
+    else if (e.key === "1") { setZoom("1"); }
+    else if (e.code === "Space") { e.preventDefault(); togglePlay(); }
     else if (e.key === "ArrowRight" && e.target.type !== "range") { e.preventDefault(); step(e.shiftKey ? 10 : 1); }
     else if (e.key === "ArrowLeft" && e.target.type !== "range") { e.preventDefault(); step(e.shiftKey ? -10 : -1); }
     else if (e.key === "Home") { e.preventDefault(); anim.goToAndStop(0, true); updateTransport(); }
